@@ -11,6 +11,9 @@ st.markdown("""
 <style>
 
 /* Responsive container */
+.stAppHeader {
+    display: none !important;            
+}
 .block-container {
     max-width: 800px;
     width: 100%;
