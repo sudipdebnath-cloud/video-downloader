@@ -9,11 +9,49 @@ st.set_page_config(page_title="Video Downloader PRO", layout="centered")
 
 st.markdown("""
 <style>
+
+/* Responsive container */
 .block-container {
-    width: 800px;
-    max-width: 1100px;
-    padding-top: 3rem;
+    max-width: 800px;
+    width: 100%;
+    padding-top: 2rem;
+    padding-left: 1rem;
+    padding-right: 1rem;
 }
+
+/* Fix text overflow */
+h1, h2, h3 {
+    word-wrap: break-word;
+}
+
+/* Make input responsive */
+.stTextInput input {
+    width: 100% !important;
+}
+
+/* Mobile adjustments */
+@media (max-width: 768px) {
+
+    .block-container {
+        max-width: 100%;
+        padding-left: 0.5rem;
+        padding-right: 0.5rem;
+    }
+
+    h1 {
+        font-size: 1.6rem !important;
+    }
+
+    h2 {
+        font-size: 1.3rem !important;
+    }
+
+    h3 {
+        font-size: 1.15rem !important;
+    }
+
+}
+
 </style>
 """, unsafe_allow_html=True)
 
