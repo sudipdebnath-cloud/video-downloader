@@ -55,6 +55,15 @@ h1, h2, h3 {
 </style>
 """, unsafe_allow_html=True)
 
+st.markdown("""
+<div style="text-align:center; margin-bottom:0px; margin-top:20px;">
+    <a href="https://sudipdebnath-cloud.github.io/" target="_blank">
+        <img src="https://sudipdebnath-cloud.github.io/images/sd_dp.png"
+             width="120"
+             style="border-radius:50%; border:5px solid #1f77b4;">
+    </a>
+</div>
+""", unsafe_allow_html=True)
 st.title("🎬 Universal Video Downloader PRO")
 st.caption("YouTube • Facebook • Instagram • X • Shorts • Reels")
 
