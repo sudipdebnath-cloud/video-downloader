@@ -64,7 +64,7 @@ st.markdown("""
     </a>
 </div>
 """, unsafe_allow_html=True)
-st.title("🎬 Universal Video Downloader PRO")
+st.title("🎬 SD Video Downloader PRO")
 st.caption("YouTube • Facebook • Instagram • X • Shorts • Reels")
 
 # ---------------- INPUT ----------------
