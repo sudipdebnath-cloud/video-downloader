@@ -59,7 +59,7 @@ st.markdown("""
 <div style="text-align:center; margin-bottom:0px; margin-top:20px;">
     <a href="https://sudipdebnath-cloud.github.io/" target="_blank">
         <img src="https://sudipdebnath-cloud.github.io/images/sd_dp.png"
-             width="120"
+             width="150"
              style="border-radius:50%; border:5px solid #1f77b4;">
     </a>
 </div>
