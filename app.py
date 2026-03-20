@@ -11,7 +11,7 @@ st.markdown("""
 <style>
 
 /* Responsive container */
-.stAppHeader {
+.stAppHeader, ._profileContainer_gzau3_53, ._container_gzau3_1 _viewerBadge_nim44_23, ._stateContainer_nim44_26 > a, ._stateContainer_nim44_26 > div {
     display: none !important;            
 }
 .block-container {
