@@ -2,6 +2,7 @@ import streamlit as st
 import tempfile
 import os
 import base64
+import urllib.request
 from yt_dlp import YoutubeDL
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 
@@ -216,7 +217,21 @@ if "info" in st.session_state:
     duration = info.get("duration")
 
     if thumbnail:
-        st.image(thumbnail, use_container_width=True)
+        try:
+            # Tell Python to fetch the image pretending to be a real browser
+            req = urllib.request.Request(
+                thumbnail, 
+                headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+            )
+            with urllib.request.urlopen(req) as response:
+                image_bytes = response.read()
+            
+            # Display the raw bytes directly
+            st.image(image_bytes, width="stretch")
+            
+        except Exception as e:
+            # Fallback just in case the backend fetch fails
+            st.image(thumbnail, width="stretch")
 
     st.subheader(title)
 
