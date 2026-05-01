@@ -140,12 +140,21 @@ if st.button("Fetch Video Info") and url:
                 "nocheckcertificate": True,
                 "extractor_args": {
                     "youtube": {
-                        "player_client": ["android", "web"]
+                        # Drop "web", rely strictly on mobile clients
+                        "player_client": ["ios", "android", "mweb"],
+                        "player_skip_bundle_url": True,
+                    },
+                    "instagram": {
+                        # This flag helps extract IG media without logging in
+                        "check_display_resources": True,
                     }
                 },
                 "http_headers": {
-                    "User-Agent": "Mozilla/5.0",
-                    "Accept-Language": "en-US,en;q=0.9"
+                    # Use a full, modern Chrome User-Agent string
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                    "Accept-Language": "en-US,en;q=0.9",
+                    "Referer": "https://www.google.com/",
                 }
             }
 
