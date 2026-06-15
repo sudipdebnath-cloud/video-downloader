@@ -56,7 +56,15 @@ h1, h2, h3 {
     h3 {
         font-size: 1.15rem !important;
     }
+}
 
+/* Thumbnail Download Button Hover Effect */
+.thumb-dl-btn {
+    transition: all 0.2s ease-in-out;
+}
+.thumb-dl-btn:hover {
+    background: rgba(0, 0, 0, 0.8) !important;
+    transform: scale(1.1);
 }
 
 </style>
@@ -116,20 +124,25 @@ def normalize_youtube_url(u):
     ))
 
 def get_cookie_path(uploaded_file):
+    cookie_text = None
+
     if uploaded_file:
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".txt")
-        tmp.write(uploaded_file.read())
+        cookie_text = uploaded_file.read().decode("utf-8", errors="ignore")
+    else:
+        try:
+            if "STATIC_COOKIES" in st.secrets:
+                cookie_text = st.secrets["STATIC_COOKIES"]
+        except Exception:
+            pass
+
+    if cookie_text:
+        # Secretly translate all X.com domains to Twitter.com to fix yt-dlp bug
+        cookie_text = cookie_text.replace(".x.com", ".twitter.com").replace("x.com\t", "twitter.com\t")
+        
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".txt", mode="w", encoding="utf-8")
+        tmp.write(cookie_text)
         tmp.close()
         return tmp.name
-        
-    try:
-        if "STATIC_COOKIES" in st.secrets:
-            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".txt", mode="w")
-            tmp.write(st.secrets["STATIC_COOKIES"])
-            tmp.close()
-            return tmp.name
-    except Exception:
-        pass
 
     return None
 
@@ -218,6 +231,7 @@ if "info" in st.session_state:
     duration = info.get("duration")
 
     if thumbnail:
+        # Convert image to Base64 so it can be downloaded directly from the UI safely
         try:
             req = urllib.request.Request(
                 thumbnail, 
@@ -225,9 +239,31 @@ if "info" in st.session_state:
             )
             with urllib.request.urlopen(req) as response:
                 image_bytes = response.read()
-            st.image(image_bytes, width="stretch")
-        except Exception as e:
-            st.image(thumbnail, width="stretch")
+            
+            b64_image = base64.b64encode(image_bytes).decode()
+            img_src = f"data:image/jpeg;base64,{b64_image}"
+        except Exception:
+            # Fallback if the backend fails to fetch the raw bytes
+            img_src = thumbnail
+
+        # Custom HTML to position the download button over the image
+        html_code = f"""
+        <div style="position: relative; border-radius: 8px; overflow: hidden; margin-bottom: 1rem; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+            <img src="{img_src}" style="width: 100%; display: block; object-fit: inherit;">
+            <a href="{img_src}" download="thumbnail.jpg" title="Download Thumbnail" class="thumb-dl-btn"
+               style="position: absolute; top: 10px; right: 10px; background: rgba(0, 0, 0, 0.5); 
+                      color: white; border-radius: 50%; width: 40px; height: 40px; 
+                      display: flex; align-items: center; justify-content: center; 
+                      text-decoration: none; backdrop-filter: blur(4px);">
+               <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                   <polyline points="7 10 12 15 17 10"></polyline>
+                   <line x1="12" y1="15" x2="12" y2="3"></line>
+               </svg>
+            </a>
+        </div>
+        """
+        st.markdown(html_code, unsafe_allow_html=True)
 
     st.subheader(title)
 
@@ -356,7 +392,6 @@ if "formats" in st.session_state:
                     with YoutubeDL(ydl_opts) as ydl:
                         info = ydl.extract_info(clean_url, download=True)
                 except Exception:
-                    # Silently fall back to standard format for flat files (Twitter, Pinterest, TikTok)
                     ydl_opts["format"] = "best"
                     with YoutubeDL(ydl_opts) as ydl:
                         info = ydl.extract_info(clean_url, download=True)
@@ -394,7 +429,6 @@ if "formats" in st.session_state:
                         rendered_video_path = os.path.join(tmpdir, "rendered_video.mp4")
                         
                         try:
-                            # 1. Bypass macOS Python SSL Certificate bug
                             ctx = ssl.create_default_context()
                             ctx.check_hostname = False
                             ctx.verify_mode = ssl.CERT_NONE
@@ -406,10 +440,8 @@ if "formats" in st.session_state:
                             with urllib.request.urlopen(req, context=ctx) as response, open(thumb_path, 'wb') as f:
                                 f.write(response.read())
                             
-                            # 2. Auto-locate FFmpeg on Mac/Linux
                             ffmpeg_cmd = shutil.which("ffmpeg") or "ffmpeg"
 
-                            # 3. Render Video with FFmpeg
                             cmd = [
                                 ffmpeg_cmd, "-y",
                                 "-loop", "1", "-framerate", "1", 
@@ -423,7 +455,6 @@ if "formats" in st.session_state:
                             ]
                             
                             subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-                            
                             final = rendered_video_path
                             
                         except FileNotFoundError:
