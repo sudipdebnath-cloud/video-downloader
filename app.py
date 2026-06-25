@@ -162,10 +162,9 @@ if st.button("Fetch Video Info") and url:
                 "noplaylist": True,
                 "nocheckcertificate": True,
                 "extractor_args": {
-                    "youtube": {
-                        "player_client": ["ios", "android", "mweb"],
-                        "player_skip_bundle_url": True,
-                    },
+                    # FIX: Removed the restrictive mobile player_client override
+                    # Now yt-dlp will fetch desktop streams, unlocking 1080p+ DASH formats!
+                    "youtube": {},
                     "instagram": {
                         "check_display_resources": True,
                     }
@@ -186,26 +185,37 @@ if st.button("Fetch Video Info") and url:
 
             st.session_state["info"] = info
 
-            formats = {}
+            # === CLEANER UI FORMAT LOGIC ===
+            formats_dict = {}
 
             for f in info.get("formats", []):
                 height = f.get("height")
-                if not height:
+                vcodec = f.get("vcodec", "none")
+                ext = f.get("ext", "")
+
+                # Skip audio-only streams
+                if not height or vcodec == "none":
+                    continue
+                
+                # For YouTube, strictly only list MP4 formats in the dropdown 
+                # This prevents the UI from falsely promising 4K (which is WebM-only)
+                if is_youtube(clean_url) and ext != "mp4":
                     continue
 
                 size = f.get("filesize") or f.get("filesize_approx")
                 size_txt = f" • {round(size/1024/1024,1)} MB" if size else ""
-                label = f"{height}p{size_txt}"
+                
+                # Dictionary keyed by height naturally overwrites lower-bitrate duplicates
+                # Because yt-dlp sorts worst-to-best, the last one stored is the best MP4 version.
+                formats_dict[height] = f"{height}p{size_txt}"
 
-                if height not in formats.values():
-                    formats[label] = height
-
-            if not formats:
-                formats["Best Available"] = 0
-
-            st.session_state["formats"] = dict(
-                sorted(formats.items(), key=lambda x: x[1], reverse=True)
-            )
+            if not formats_dict:
+                st.session_state["formats"] = {"Best Available": 0}
+            else:
+                # Flip the dictionary for the UI and sort largest to smallest
+                st.session_state["formats"] = dict(
+                    sorted({label: h for h, label in formats_dict.items()}.items(), key=lambda x: x[1], reverse=True)
+                )
 
             st.success("✅ Video ready to download")
 
@@ -331,18 +341,14 @@ if "formats" in st.session_state:
 
             clean_url = normalize_youtube_url(url) if is_youtube(url) else url
 
-            # === FIX: QUICKTIME COMPATIBILITY ===
-            # Grouping social media sites to bypass DASH stream merging issues
             is_social_media = is_instagram(clean_url) or is_facebook(clean_url) or "tiktok.com" in clean_url
 
             if mode == "Audio Only (MP3)":
                 format_string = "bestaudio/best"
             elif mode == "Best Quality":
                 if is_social_media:
-                    # Forces the pre-merged native file so QuickTime's AVFoundation doesn't reject malformed MOOV atoms
                     format_string = "best[ext=mp4]/best"
                 else:
-                    # YouTube requires explicit merging for 1080p+
                     format_string = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/bestvideo+bestaudio/best"
             else:
                 if is_social_media:
@@ -353,7 +359,6 @@ if "formats" in st.session_state:
             ydl_opts = {
                 "format": format_string,
                 "merge_output_format": "mp4",
-                # STRICT CODEC SORTING: Forces H.264 video and AAC audio to the absolute top of the priority list
                 "format_sort": ["vcodec:h264", "acodec:aac", "ext:mp4:m4a", "res"],
                 "outtmpl": os.path.join(tmpdir, "%(title).60s_%(id)s.%(ext)s"),
                 "restrictfilenames": True,
@@ -367,10 +372,8 @@ if "formats" in st.session_state:
                 "overwrites": True,
                 "nocheckcertificate": True,
                 "extractor_args": {
-                    "youtube": {
-                        "player_client": ["ios", "android", "mweb"],
-                        "player_skip_bundle_url": True,
-                    },
+                    # FIX: Removed the restrictive mobile player_client override here too
+                    "youtube": {},
                     "instagram": {
                         "check_display_resources": True,
                     }
