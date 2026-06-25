@@ -86,7 +86,6 @@ st.caption("Download from YouTube, IG, X, FB, TikTok, Pinterest & 1000+ more sit
 # ---------------- INPUT ----------------
 url = st.text_input("Paste Video URL")
 
-# Compact HTML to save space and provide quick step-by-step instructions
 st.markdown("""
 <p style='font-size: 0.85rem; color: gray; margin-bottom: -5px;'>
     🔒 <b>Restricted Video?</b> 
@@ -136,9 +135,7 @@ def get_cookie_path(uploaded_file):
             pass
 
     if cookie_text:
-        # Secretly translate all X.com domains to Twitter.com to fix yt-dlp bug
         cookie_text = cookie_text.replace(".x.com", ".twitter.com").replace("x.com\t", "twitter.com\t")
-        
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".txt", mode="w", encoding="utf-8")
         tmp.write(cookie_text)
         tmp.close()
@@ -177,7 +174,7 @@ if st.button("Fetch Video Info") and url:
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
                     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
                     "Accept-Language": "en-US,en;q=0.9",
-                    "Referer": "https://www.google.com/",
+                    "Referer": clean_url, 
                 }
             }
 
@@ -197,8 +194,8 @@ if st.button("Fetch Video Info") and url:
                     continue
 
                 size = f.get("filesize") or f.get("filesize_approx")
-                size_txt = f"{round(size/1024/1024,1)} MB" if size else "Unknown"
-                label = f"{height}p • {size_txt}"
+                size_txt = f" • {round(size/1024/1024,1)} MB" if size else ""
+                label = f"{height}p{size_txt}"
 
                 if height not in formats.values():
                     formats[label] = height
@@ -231,7 +228,6 @@ if "info" in st.session_state:
     duration = info.get("duration")
 
     if thumbnail:
-        # Convert image to Base64 so it can be downloaded directly from the UI safely
         try:
             req = urllib.request.Request(
                 thumbnail, 
@@ -243,10 +239,8 @@ if "info" in st.session_state:
             b64_image = base64.b64encode(image_bytes).decode()
             img_src = f"data:image/jpeg;base64,{b64_image}"
         except Exception:
-            # Fallback if the backend fails to fetch the raw bytes
             img_src = thumbnail
 
-        # Custom HTML to position the download button over the image
         html_code = f"""
         <div style="position: relative; border-radius: 8px; overflow: hidden; margin-bottom: 1rem; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
             <img src="{img_src}" style="width: 100%; display: block; object-fit: inherit;">
@@ -337,29 +331,41 @@ if "formats" in st.session_state:
 
             clean_url = normalize_youtube_url(url) if is_youtube(url) else url
 
+            # === FIX: QUICKTIME COMPATIBILITY ===
+            # Grouping social media sites to bypass DASH stream merging issues
+            is_social_media = is_instagram(clean_url) or is_facebook(clean_url) or "tiktok.com" in clean_url
+
             if mode == "Audio Only (MP3)":
                 format_string = "bestaudio/best"
             elif mode == "Best Quality":
-                format_string = "bestvideo+bestaudio/best"
+                if is_social_media:
+                    # Forces the pre-merged native file so QuickTime's AVFoundation doesn't reject malformed MOOV atoms
+                    format_string = "best[ext=mp4]/best"
+                else:
+                    # YouTube requires explicit merging for 1080p+
+                    format_string = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/bestvideo+bestaudio/best"
             else:
-                format_string = f"bestvideo[height<={selected_height}]+bestaudio/best"
+                if is_social_media:
+                    format_string = f"best[ext=mp4][height<={selected_height}]/best[height<={selected_height}]/best"
+                else:
+                    format_string = f"bestvideo[ext=mp4][height<={selected_height}]+bestaudio[ext=m4a]/bestvideo[height<={selected_height}]+bestaudio/best[ext=mp4]/best"
 
             ydl_opts = {
                 "format": format_string,
                 "merge_output_format": "mp4",
+                # STRICT CODEC SORTING: Forces H.264 video and AAC audio to the absolute top of the priority list
+                "format_sort": ["vcodec:h264", "acodec:aac", "ext:mp4:m4a", "res"],
                 "outtmpl": os.path.join(tmpdir, "%(title).60s_%(id)s.%(ext)s"),
                 "restrictfilenames": True,
                 "progress_hooks": [hook],
-                "retries": 10,
-                "fragment_retries": 10,
-                "concurrent_fragment_downloads": 5,
+                "retries": 15,            
+                "fragment_retries": 15,
                 "buffersize": 1024 * 1024 * 16,
                 "forceipv4": True,
                 "noplaylist": True,
                 "continuedl": True,
                 "overwrites": True,
                 "nocheckcertificate": True,
-                "http_chunk_size": 10485760,
                 "extractor_args": {
                     "youtube": {
                         "player_client": ["ios", "android", "mweb"],
@@ -373,7 +379,7 @@ if "formats" in st.session_state:
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
                     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
                     "Accept-Language": "en-US,en;q=0.9",
-                    "Referer": "https://www.google.com/",
+                    "Referer": clean_url, 
                 }
             }
 
@@ -392,14 +398,20 @@ if "formats" in st.session_state:
                     with YoutubeDL(ydl_opts) as ydl:
                         info = ydl.extract_info(clean_url, download=True)
                 except Exception:
-                    ydl_opts["format"] = "best"
-                    with YoutubeDL(ydl_opts) as ydl:
-                        info = ydl.extract_info(clean_url, download=True)
+                    ydl_opts["format"] = "best[ext=mp4]/best"
+                    try:
+                        with YoutubeDL(ydl_opts) as ydl:
+                            info = ydl.extract_info(clean_url, download=True)
+                    except Exception:
+                        if "format" in ydl_opts:
+                            del ydl_opts["format"]
+                        with YoutubeDL(ydl_opts) as ydl:
+                            info = ydl.extract_info(clean_url, download=True)
 
                 base = os.path.splitext(ydl.prepare_filename(info))[0]
                 final = None
 
-                for ext in (".mp4", ".mkv", ".webm", ".mp3", ".m4a", ".opus"):
+                for ext in (".mp4", ".mkv", ".webm", ".mp3", ".m4a", ".opus", ".jpg", ".png"):
                     path = base + ext
                     if os.path.exists(path):
                         final = path
@@ -409,7 +421,6 @@ if "formats" in st.session_state:
                     st.error("❌ Downloaded file not found")
                     st.stop()
 
-                # --- FIX FOR IMAGE+AUDIO REELS ---
                 has_video_track = True
                 
                 if info.get('vcodec') == 'none':
@@ -418,7 +429,7 @@ if "formats" in st.session_state:
                 if final.endswith((".mp3", ".m4a", ".opus", ".wav")):
                     has_video_track = False
 
-                if mode != "Audio Only (MP3)" and not has_video_track:
+                if mode != "Audio Only (MP3)" and not has_video_track and not final.endswith((".jpg", ".png")):
                     thumbnail_url = info.get("thumbnail")
                     
                     if thumbnail_url:
@@ -489,6 +500,10 @@ if "formats" in st.session_state:
                     st.error("🔒 Login required. Upload cookies.txt.")
                 elif "rate-limit" in msg:
                     st.warning("⏳ Rate limit reached. Try later.")
+                elif "requested format is not available" in msg:
+                    st.error("❌ No downloadable video found. (This might be a static Image Pin or Text post).")
+                elif "downloaded file is empty" in msg:
+                    st.error("❌ The platform blocked the video stream chunks. Try updating your cookies or using a different link.")
                 else:
                     st.error("❌ Download failed")
                     st.exception(e)
