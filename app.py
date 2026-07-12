@@ -88,14 +88,65 @@ url = st.text_input("Paste Video URL")
 
 st.markdown("""
 <p style='font-size: 0.85rem; color: gray; margin-bottom: -5px;'>
-    🔒 <b>Restricted Video?</b> 
-    1. Install <i>'Get cookies.txt LOCALLY'</i> extension. 
-    2. Open video's site. 
-    3. Export & upload below.
+    🔒 <b>Restricted Video?</b> Pick a cookie source below — using your browser's
+    existing login is usually the most reliable, since exported cookie files
+    expire and need re-exporting.
 </p>
 """, unsafe_allow_html=True)
 
-uploaded_cookie = st.file_uploader("Upload cookies.txt", type=["txt"])
+def _chrome_installed():
+    return os.path.exists("/Applications/Google Chrome.app")
+
+def _safari_installed():
+    return os.path.exists("/Applications/Safari.app")
+
+def _detect_viewing_browser():
+    """Look at the User-Agent of the browser currently loading this page
+    to guess which browser to pull cookies from. Falls back to checking
+    which browsers are installed if headers aren't available (older
+    Streamlit versions)."""
+    try:
+        ua = st.context.headers.get("User-Agent", "")
+    except Exception:
+        ua = ""
+
+    if ua:
+        # Chrome (and Chromium/Edge) UAs always include "Chrome"/"Chromium"/"Edg",
+        # even though they also contain a legacy "Safari/xxx" token — so check
+        # for those first. Only treat it as Safari if none of those are present.
+        if any(tag in ua for tag in ("Chrome", "Chromium", "Edg")):
+            return "Use browser (Chrome)"
+        if "Safari" in ua and "Version" in ua:
+            return "Use browser (Safari)"
+
+    if _chrome_installed():
+        return "Use browser (Chrome)"
+    if _safari_installed():
+        return "Use browser (Safari)"
+    return "None"
+
+_cookie_options = ["None", "Use browser (Chrome)", "Use browser (Safari)", "Upload cookies.txt"]
+_default_cookie_index = _cookie_options.index(_detect_viewing_browser())
+
+cookie_source = st.radio(
+    "Cookie source (for login-required Instagram/YouTube videos)",
+    _cookie_options,
+    index=_default_cookie_index,
+    horizontal=True,
+)
+
+uploaded_cookie = None
+browser_for_cookies = None
+
+if cookie_source == "Upload cookies.txt":
+    st.caption("Install the 'Get cookies.txt LOCALLY' extension, open the video's site while logged in, export, then upload here.")
+    uploaded_cookie = st.file_uploader("Upload cookies.txt", type=["txt"])
+elif cookie_source == "Use browser (Chrome)":
+    st.caption("Make sure you're logged into Instagram/YouTube in Chrome on this Mac. yt-dlp will read the session directly — nothing to export.")
+    browser_for_cookies = "chrome"
+elif cookie_source == "Use browser (Safari)":
+    st.caption("Safari's cookie store is protected by macOS — if this fails, grant your terminal 'Full Disk Access' in System Settings > Privacy & Security, or use Chrome instead.")
+    browser_for_cookies = "safari"
 
 # ---------------- HELPERS ----------------
 def is_youtube(u): return "youtube.com" in u or "youtu.be" in u
@@ -143,7 +194,83 @@ def get_cookie_path(uploaded_file):
 
     return None
 
-cookie_path = get_cookie_path(uploaded_cookie)
+
+def get_cookie_ydl_opts(uploaded_file, browser_name):
+    """Returns a dict to merge into ydl_opts for whichever cookie source is
+    active. cookiefile and cookiesfrombrowser are mutually exclusive in
+    yt-dlp, so only one key is ever set."""
+    if browser_name:
+        # Reads the session straight from the browser's own cookie store —
+        # no export/upload, and it can't go stale the way a saved file can.
+        return {"cookiesfrombrowser": (browser_name,)}
+
+    cookie_path = get_cookie_path(uploaded_file)
+    if cookie_path:
+        return {"cookiefile": cookie_path}
+
+    return {}
+
+
+def get_stream_codec(path, stream_type):
+    """Return the codec name of the first stream of the given type
+    ('v' for video, 'a' for audio), or None if there isn't one / ffprobe fails."""
+    ffprobe_cmd = shutil.which("ffprobe") or "ffprobe"
+    try:
+        result = subprocess.run(
+            [
+                ffprobe_cmd, "-v", "error",
+                "-select_streams", f"{stream_type}:0",
+                "-show_entries", "stream=codec_name",
+                "-of", "csv=p=0",
+                path,
+            ],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=15,
+        )
+        codec = result.stdout.strip()
+        return codec or None
+    except Exception:
+        return None
+
+
+def ensure_player_compatible(path, tmpdir, status=None, bar=None):
+    """Re-encode to H.264/AAC only if the downloaded file isn't already in
+    a widely-compatible codec (QuickTime, Windows, mobile players). This
+    keeps normal H.264 downloads fast and only pays the re-encode cost
+    when the platform served something like VP9/AV1 + Opus."""
+    video_codec = get_stream_codec(path, "v")
+    audio_codec = get_stream_codec(path, "a")
+
+    video_ok = video_codec in ("h264",)
+    audio_ok = audio_codec is None or audio_codec in ("aac",)
+
+    if video_ok and audio_ok:
+        return path  # already compatible, nothing to do
+
+    if status:
+        status.text("🔄 Converting for player compatibility...")
+    if bar:
+        bar.progress(90)
+
+    ffmpeg_cmd = shutil.which("ffmpeg") or "ffmpeg"
+    fixed_path = os.path.join(tmpdir, "compat_" + os.path.basename(path))
+
+    cmd = [
+        ffmpeg_cmd, "-y",
+        "-i", path,
+        "-c:v", "libx264", "-c:a", "aac",
+        "-movflags", "+faststart",
+        "-pix_fmt", "yuv420p",
+        fixed_path,
+    ]
+
+    try:
+        subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=600)
+        return fixed_path
+    except Exception:
+        # If re-encoding fails for any reason, fall back to the original
+        # file rather than blocking the download entirely.
+        return path
+
 
 # ---------------- FETCH VIDEO INFO ----------------
 if st.button("Fetch Video Info") and url:
@@ -177,8 +304,7 @@ if st.button("Fetch Video Info") and url:
                 }
             }
 
-            if cookie_path:
-                ydl_opts["cookiefile"] = cookie_path
+            ydl_opts.update(get_cookie_ydl_opts(uploaded_cookie, browser_for_cookies))
 
             with YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(clean_url, download=False)
@@ -386,8 +512,7 @@ if "formats" in st.session_state:
                 }
             }
 
-            if cookie_path:
-                ydl_opts["cookiefile"] = cookie_path
+            ydl_opts.update(get_cookie_ydl_opts(uploaded_cookie, browser_for_cookies))
 
             if mode == "Audio Only (MP3)":
                 ydl_opts["postprocessors"] = [{
@@ -481,6 +606,13 @@ if "formats" in st.session_state:
                             st.error(f"🚨 Python crashed during thumbnail prep! Error: {str(e)}")
                             st.stop()
 
+                elif mode != "Audio Only (MP3)" and has_video_track and not final.endswith((".jpg", ".png")):
+                    # A real video stream came through, but the platform may have
+                    # served it in VP9/AV1 + Opus (common on slideshow-style reels),
+                    # which QuickTime and some other players won't open cleanly.
+                    # Only re-encode if it's actually needed.
+                    final = ensure_player_compatible(final, tmpdir, status=status, bar=bar)
+
                 bar.progress(100)
                 status.text("✅ Download complete")
 
@@ -495,12 +627,17 @@ if "formats" in st.session_state:
             except Exception as e:
                 msg = str(e).lower()
                 if "403" in msg or "forbidden" in msg:
-                    if not cookie_path:
-                        st.error("🚫 Platform blocked this download. Upload cookies.txt.")
+                    if cookie_source == "None":
+                        st.error("🚫 Platform blocked this download. Try 'Use browser (Chrome)' above.")
+                    elif browser_for_cookies:
+                        st.error("⚠️ Blocked even with browser cookies. Make sure you're actually logged into that site in the selected browser, then try again.")
                     else:
-                        st.error("⚠️ Cookies expired. Export fresh cookies.")
+                        st.error("⚠️ Cookies expired. Export a fresh cookies.txt, or switch to 'Use browser (Chrome)' instead.")
                 elif "login required" in msg or "cookies" in msg:
-                    st.error("🔒 Login required. Upload cookies.txt.")
+                    if cookie_source == "None":
+                        st.error("🔒 Login required. Select 'Use browser (Chrome)' above, or upload cookies.txt.")
+                    else:
+                        st.error("🔒 Login required — your session doesn't have access to this content (private account, age-restricted, etc.).")
                 elif "rate-limit" in msg:
                     st.warning("⏳ Rate limit reached. Try later.")
                 elif "requested format is not available" in msg:
