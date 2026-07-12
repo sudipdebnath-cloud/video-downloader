@@ -142,7 +142,7 @@ if cookie_source == "Upload cookies.txt":
     st.caption("Install the 'Get cookies.txt LOCALLY' extension, open the video's site while logged in, export, then upload here.")
     uploaded_cookie = st.file_uploader("Upload cookies.txt", type=["txt"])
 elif cookie_source == "Use browser (Chrome)":
-    st.caption("Make sure you're logged into Instagram/YouTube in Chrome on this Mac. yt-dlp will read the session directly — nothing to export.")
+    st.caption("Make sure you're logged into Instagram/YouTube in Chrome on this Mac. APP will read the session directly — nothing to export.")
     browser_for_cookies = "chrome"
 elif cookie_source == "Use browser (Safari)":
     st.caption("Safari's cookie store is protected by macOS — if this fails, grant your terminal 'Full Disk Access' in System Settings > Privacy & Security, or use Chrome instead.")
@@ -198,7 +198,7 @@ def get_cookie_path(uploaded_file):
 def get_cookie_ydl_opts(uploaded_file, browser_name):
     """Returns a dict to merge into ydl_opts for whichever cookie source is
     active. cookiefile and cookiesfrombrowser are mutually exclusive in
-    yt-dlp, so only one key is ever set."""
+    APP, so only one key is ever set."""
     if browser_name:
         # Reads the session straight from the browser's own cookie store —
         # no export/upload, and it can't go stale the way a saved file can.
